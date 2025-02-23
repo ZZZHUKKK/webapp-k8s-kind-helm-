@@ -1,0 +1,108 @@
+Развёртывание веб-приложения в Kubernetes
+1. Создание Kubernetes-кластера (Kind)
+Убедитесь, что у вас установлены Docker и Kind.
+Создайте кластер Kind:
+
+[$ ] kind create cluster --name mycluster
+
+Проверьте, что кластер создан и kubectl подключён к нему:
+
+[$ ] kubectl cluster-info
+[$ ] kubectl get nodes
+
+Должен отобразиться один узел со статусом Ready.
+
+2. Установка Ingress NGINX Controller (через Helm)
+Установите Helm, если он ещё не установлен.
+Добавьте репозиторий ingress-nginx и обновите его:
+
+[$ ] helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+[$ ] helm repo update
+
+Установите Ingress NGINX Controller в namespace ingress-nginx:
+
+[$ ] helm install ingress-nginx ingress-nginx/ingress-nginx --namespace ingress-nginx --create-namespace
+
+Убедитесь, что поды контроллера развернулись и работают:
+
+[$ ] kubectl get pods -n ingress-nginx
+
+Когда все поды будут в статусе Running, можно переходить к следующему шагу.
+
+3. Применение манифестов приложения
+В проекте есть четыре основных манифеста:
+
+ConfigMap (configmap.yaml) — содержит index.html.
+Deployment (deployment.yaml) — разворачивает Pod с nginx:alpine, монтируя ConfigMap в /usr/share/nginx/html.
+Service (service.yaml) — создаёт ClusterIP-сервис для доступа к Pod-ам.
+Ingress (ingress.yaml) — описывает правило, чтобы все запросы, поступающие на хост hello.local, направлялись на nginx-backend.
+Примените манифесты:
+
+[$ ] kubectl apply -f configmap.yaml
+[$ ] kubectl apply -f deployment.yaml
+[$ ] kubectl apply -f service.yaml
+[$ ] kubectl apply -f ingress.yaml
+
+Проверьте, что всё создалось:
+
+[$ ] kubectl get deployments
+[$ ] kubectl get pods
+[$ ] kubectl get service
+[$ ] kubectl get ingress
+
+4. Настройка доступа к приложению извне
+В Kind нет встроенного LoadBalancer. Чтобы сделать приложение доступным «снаружи», можно использовать один из способов.
+
+Вариант A: kubectl port-forward
+Прокиньте порт Ingress NGINX на локальный 8080:
+
+[$ ] kubectl port-forward --namespace ingress-nginx service/ingress-nginx-controller 8080:80
+
+В другом терминале или в той же сессии проверьте, что Ingress доступен.
+
+Важно: Ingress настроен на хост hello.local, поэтому либо добавьте заголовок Host, либо пропишите запись в /etc/hosts.
+
+Способ 1 — добавление заголовка Host при запросе:
+
+[$ ] curl -H "Host: hello.local" http://127.0.0.1:8080
+
+Должен вернуться HTML с «Hello, Kubernetes!».
+
+Способ 2 — добавление в /etc/hosts:
+
+Откройте файл /etc/hosts и добавьте строку:
+
+127.0.0.1 hello.local
+
+После этого откройте браузер или выполните команду:
+
+[$ ] curl http://hello.local:8080
+
+Вы должны увидеть тот же результат.
+
+5. Проверка логов и отладка
+Для проверки работоспособности можно воспользоваться следующими командами:
+
+Проверка статуса подов:
+[$ ] kubectl get pods -A
+
+Детальная информация о поде:
+[$ ] kubectl describe pod <pod-name> -n <namespace>
+
+Просмотр логов бэкенда (nginx-backend):
+[$ ] kubectl logs -l app=nginx-backend
+
+(или для конкретного pod-а)
+[$ ] kubectl logs <pod-name>
+
+Просмотр логов Ingress NGINX Controller:
+[$ ] kubectl logs -n ingress-nginx -l app.kubernetes.io/name=ingress-nginx
+
+Если требуется детальная информация о конкретном pod-е Ingress-контроллера:
+[$ ] kubectl logs <ingress-nginx-controller-pod-name> -n ingress-nginx
+
+Проверка состояния Ingress:
+[$ ] kubectl get ingress
+[$ ] kubectl describe ingress nginx-ingress
+
+Эти команды помогут понять, как и куда Ingress направляет трафик, а также какие хосты и пути настроены.
