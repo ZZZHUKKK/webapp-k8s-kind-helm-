@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+set -e
+
+
+# Проверяем, что Docker установлен и запущен
+if ! command -v docker &>/dev/null; then
+  echo "Docker не установлен или не найден в PATH. Установите Docker и повторите попытку."
+  exit 1
+fi
+
+# Проверяем, что kubectl установлен
+if ! command -v kubectl &>/dev/null; then
+  echo "kubectl не установлен или не найден в PATH. Установите kubectl и повторите попытку."
+  exit 1
+fi
+
+KIND_CLUSTER_NAME="mycluster"
+
+if ! command -v kind &>/dev/null; then
+  echo "Kind не установлен или не найден в PATH. Установите Kind или пропустите этот шаг."
+  exit 1
+fi
+
+if ! kind get clusters | grep -q "$KIND_CLUSTER_NAME"; then
+  echo "Создаём кластер Kind: $KIND_CLUSTER_NAME"
+  kind create cluster --name "$KIND_CLUSTER_NAME"
+else
+  echo "Кластер Kind $KIND_CLUSTER_NAME уже существует. Пропускаем создание."
+fi
+
+# Проверяем, что kubectl указывает на нужный контекст
+kubectl cluster-info --context "kind-$KIND_CLUSTER_NAME"
+
+if ! command -v helm &>/dev/null; then
+  echo "Helm не установлен. Попытаемся установить..."
+  # Установка Helm под Linux x86_64
+  # При необходимости подставьте актуальную ссылку на версию
+  curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+else
+  echo "Helm уже установлен. Пропускаем установку."
+fi
+
+NAMESPACE="ingress-nginx"
+RELEASE_NAME="ingress-nginx"
+
+# Добавляем репозиторий ingress-nginx и устанавливаем
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx || true
+helm repo update
+
+# Проверим, что релиз не установлен
+if ! helm status "$RELEASE_NAME" -n "$NAMESPACE" &>/dev/null; then
+  echo "Устанавливаем Ingress NGINX Controller в namespace $NAMESPACE ..."
+  helm install "$RELEASE_NAME" ingress-nginx/ingress-nginx --namespace "$NAMESPACE" --create-namespace
+else
+  echo "Ingress NGINX Controller уже установлен. Пропускаем установку."
+fi
+
+echo "Ждём, пока поды Ingress NGINX будут в Running..."
+kubectl rollout status deployment/ingress-nginx-controller -n "$NAMESPACE"
+
+echo "Применяем манифесты приложения..."
+
+# Предполагаем, что рядом в той же папке лежат файлы:
+# configmap.yaml, deployment.yaml, service.yaml, ingress.yaml
+kubectl apply -f configmap.yaml
+kubectl apply -f deployment.yaml
+kubectl apply -f service.yaml
+kubectl apply -f ingress.yaml
+
+echo "Ждём, пока Deployment nginx-backend будет в Running..."
+kubectl rollout status deployment/nginx-backend
+
+echo "Запускаем port-forward на 8080 -> 80 для ingress-nginx..."
+
+# Запустим port-forward в фоновом режиме (&) и перенаправим вывод в файл logs.txt
+kubectl port-forward --namespace "$NAMESPACE" service/ingress-nginx-controller 8080:80 >> logs.txt 2>&1 &
+
+echo "Port-forward запущен. Проверить можно командой:"
+echo "  curl -H \"Host: hello.local\" http://127.0.0.1:8080"
+echo
+echo "Или пропишите в /etc/hosts строку '127.0.0.1 hello.local', после чего:"
+echo "  curl http://hello.local:8080"
+echo
+echo "Скрипт завершён!"
