@@ -1,0 +1,9 @@
+---
+- name: cluster (Kind,Kubectl,Helm,Ingress)
+  hosts: cluster
+  roles:
+    - role: install
+      tags: install
+    - role: deploy
+      tags: deploy
+

@@ -1,0 +1,80 @@
+---
+- name: Установка kind
+  become: true
+  block:
+    - name: Determine system architecture
+      shell: |
+        if [ $(uname -m) = x86_64 ]; then
+          echo "amd64"
+        elif [ $(uname -m) = aarch64 ]; then
+          echo "arm64"
+        fi
+      register: arch
+      changed_when: false
+
+    - name: Download kind binary based on architecture
+      get_url:
+        url: "https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-{{ arch.stdout }}"
+        dest: /tmp/kind
+        mode: '0755'
+
+    - name: Move kind binary to /usr/local/bin
+      copy:
+        src: /tmp/kind
+        dest: /usr/local/bin/kind
+        remote_src: true
+        mode: '0755'
+
+    - name: Clean up temporary kind binary
+      file:
+        path: /tmp/kind
+        state: absent
+
+- name: Установка Kubectl
+  become: true
+  block:
+    - name: Get last version
+      uri:
+        url: https://dl.k8s.io/release/stable.txt
+        return_content: true
+      register: last_vers
+
+    - name: Download kubectl binary (amd64)
+      get_url:
+        url: "https://dl.k8s.io/release/{{ last_vers.content }}/bin/linux/amd64/kubectl"
+        dest: /tmp/kubectl
+        mode: '0755'
+
+    - name: Move kubectl binary to /usr/local/bin
+      copy:
+        src: /tmp/kubectl
+        dest: /usr/local/bin/kubectl
+        remote_src: true
+        mode: '0755'
+    
+    - name: Clean up temporary kind binary
+      file:
+        path: /tmp/kubectl
+        state: absent
+
+- name: Установка Helm
+  become: true
+  block: 
+    - name: Download installation script
+      get_url:
+        url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+        dest: /tmp/get_helm.sh
+        mode: '0700'
+
+    - name: Determine system architecture
+      command: /tmp/get_helm.sh
+
+    - name: Clean up temporary kind binary
+      file:
+        path: /tmp/get_helm.sh
+        state: absent
+
+
+
+
+

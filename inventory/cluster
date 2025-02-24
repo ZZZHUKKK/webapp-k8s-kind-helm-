@@ -1,0 +1,2 @@
+[cluster]
+vk ansible_host=172.20.10.4 ansible_user=vagrant ansible_port=2223
