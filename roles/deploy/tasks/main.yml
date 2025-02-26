@@ -1,1 +1,84 @@
 ---
+- name: Add stable chart repo
+  kubernetes.core.helm_repository:
+    name: ingress-nginx
+    repo_url: "https://kubernetes.github.io/ingress-nginx"
+
+- name: Update all Helm repositories
+  kubernetes.core.helm:
+    command: repo update
+
+- name: Deploy latest version of Prometheus chart inside monitoring namespace (and create it)
+  kubernetes.core.helm:
+    name: ingress-nginx
+    chart_ref: ingress-nginx/ingress-nginx
+    release_namespace: ingress-nginx
+    create_namespace: true
+
+- name: Check pod statuses using kubectl module
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: ingress-nginx
+  register: pod_status
+  until: 
+    - pod_status.resources | length > 0
+    - pod_status.resources | selectattr('status.phase', 'equalto', 'Running') | list | length == pod_status.resources | length
+  retries: 30
+  delay: 10
+
+- name: Apply Kubernetes manifests
+  kubernetes.core.k8s:
+    state: present
+    src: "{{ item }}"
+  loop:
+    - "../files/configmap.yaml"
+    - "../files/deployment.yaml"
+    - "../files/service.yaml"
+    - "../files/ingress.yaml"
+  become: true
+  environment:
+    KUBECONFIG: "/root/.kube/config"
+
+- name: Create systemd service for port-forward
+  copy:
+    dest: "/etc/systemd/system/kubectl-port-forward.service"
+    content: |
+      [Unit]
+      Description=Kubernetes Port Forwarding for Ingress
+      After=network.target
+
+      [Service]
+      ExecStart=/usr/bin/kubectl port-forward --namespace ingress-nginx service/ingress-nginx-controller 8080:80
+      Restart=always
+      User=root
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: yes
+
+- name: Enable and start port-forward service
+  systemd:
+    name: kubectl-port-forward
+    state: started
+    enabled: yes
+
+- name: Test ingress with uri module
+  uri:
+    url: http://127.0.0.1:8080
+    headers:
+      Host: "hello.local"
+    return_content: yes
+  register: response
+
+- name: Show response from ingress
+  debug:
+    msg: "{{ response.content }}"
+  
+
+
+
+
